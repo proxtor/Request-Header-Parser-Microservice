@@ -1,34 +1,58 @@
-// index.js
-// where your node app starts
-
-// init project
 require('dotenv').config();
-var express = require('express');
-var app = express();
+const express = require('express');
+const cors = require('cors');
+const app = express();
+const { MongoClient } = require('mongodb');
+const client = new MongoClient(process.env.DB_URL);
+const db = client.db("urlshortner");
+const urls = db.collection("urls");
+const dns = require('dns');
+const urlparser = require('url');
+const { hostname } = require('os');
+const { json } = require('body-parser');
 
-// enable CORS (https://en.wikipedia.org/wiki/Cross-origin_resource_sharing)
-// so that your API is remotely testable by FCC
-var cors = require('cors');
-app.use(cors({ optionsSuccessStatus: 200 })); // some legacy browsers choke on 204
 
-// http://expressjs.com/en/starter/static-files.html
-app.use(express.static('public'));
+// Basic Configuration
+const port = process.env.PORT || 3000;
 
-// http://expressjs.com/en/starter/basic-routing.html
-app.get('/', function (req, res) {
-  res.sendFile(__dirname + '/views/index.html');
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({extended: true}));
+
+
+app.use('/public', express.static(`${process.cwd()}/public`));
+
+app.get('/', function(req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
 });
 
-// your first API endpoint...
-app.get('/api/whoami', function (req, res) {
-  res.json({ 
-    ipaddress: req.socket.remoteAddress,
-    language: req.headers['accept-language'],
-    software: req.headers['user-agent']
-   });
+// Your first API endpoint
+app.post('/api/shorturl', function(req, res) {
+  console.log(req.body);
+  const url = req.body.url;
+  const dnslookup = dns.lookup(urlparser.parse(url).hostname, 
+  async (err, address) => {
+    if (!address){
+      res.json({error: "Invalid URL"})
+      } else {
+        const urlCount = await urls.countDocuments({});
+        const urlDoc = {
+          url,
+          short_url: urlCount
+        };
+        const result = await urls.insertOne(urlDoc);
+        console.log(result);
+        res.json({ original_url: url, short_url: urlCount });
+    }
+  })
 });
 
-// listen for requests :)
-var listener = app.listen(process.env.PORT || 3000, function () {
-  console.log('Your app is listening on port ' + listener.address().port);
+app.get("/api/shorturl/:short_url", async (req, res) => {
+  const shorturl = req.params.short_url;
+  const urlDoc = await urls.findOne({ short_url: +shorturl});
+  res.redirect(urlDoc.url);
+})
+
+app.listen(port, function() {
+  console.log(`Listening on port ${port}`);
 });
